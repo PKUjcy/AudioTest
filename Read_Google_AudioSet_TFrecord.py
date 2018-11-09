@@ -1,9 +1,6 @@
 from __future__ import unicode_literals
-from pytube import YouTube
-import pprint as pprint
 import numpy as np
 import urllib.request
-
 import urllib.error
 import json as json
 import csv as csv
@@ -34,6 +31,8 @@ os.environ['TF_CPP_MIN_LOG_LEVEL'] = '2'
 
 proxy = {'http':'http://127.0.0.1:1080',
          'https':'https://127.0.0.1:1080'}
+count_music_num=0
+count_other_num=0
 class init_message(object):
     label_vid_id_index={}# 用于映射tfrecord数据里label与vid_id的关系
     music_label_dic={}  #music_label_dic 用于存储属于音乐这个范畴下的种类ID和对应的信息
@@ -97,7 +96,6 @@ class init_message(object):
             positive_labels_string = train_segments_reader['positive_labels'][i].strip('"').split(',')
             self.audio_vidID_youtubeID_index[train_segments_reader['YTID'][i]] =positive_labels_string
             self.audio_time_index[train_segments_reader['YTID'][i]] = [train_segments_reader['start_time'][i],train_segments_reader['end_time'][i]]
-
         return
 
 class read_tfrecord_feature(object):
@@ -158,19 +156,31 @@ def my_hook(d):
     if d['status'] == 'finished':
         print('Done downloading, now converting ...')
 class download_audio(object):
+
     file_message = init_message()
     def __init__(self,message):
         self.file_message = message
     def batch_download(self):
+        global count_music_num
+        global count_other_num
         flage = False
         for i in range(len(self.file_message.youtube_id)):
+            flage = False
             for j in range(len(self.file_message.audio_vidID_youtubeID_index[self.file_message.youtube_id[i]])):
                # print(self.file_message.audio_vidID_youtubeID_index[self.file_message.youtube_id[i]][j]+" : "+self.file_message.youtube_id[i])
                 if(self.file_message.music_label_dic.get(self.file_message.audio_vidID_youtubeID_index[self.file_message.youtube_id[i]][j])!=None):
-                    self.download_vidio(self.file_message.youtube_id[i],'E:\\music_audio\\')
+                    flage = True
+                    break
+            if(flage):
+                count_music_num+=1
+                print("type:music   path:E\\music_audio  number:",count_music_num)
+                self.download_vidio(self.file_message.youtube_id[i],'E:\\music_audio\\')
 
-                else:
-                    self.download_vidio(self.file_message.youtube_id[i],'E:\\other_audio\\')
+            else:
+                count_other_num+=1
+                print("type:other   path:E\\other_audio  number:",count_other_num)
+                self.download_vidio(self.file_message.youtube_id[i],'E:\\other_audio\\')
+
     def download_vidio(self,video_id,out_path):
         output = out_path+'/%(title)s.%(ext)s'
         path = 'https://www.youtube.com/watch?v='+video_id
