@@ -38,11 +38,13 @@ class init_message(object):
     label_vid_id_index={}# 用于映射tfrecord数据里label与vid_id的关系
     music_label_dic={}  #music_label_dic 用于存储属于音乐这个范畴下的种类ID和对应的信息
     music_label=[]
+    youtube_id=[]
     all_label_dic={}  #all_label_dic={} 用于存储所有的音频种类的ID <key(类_ID):value(json)>
     audio_feature=[]  #audio_feature 用于存储每个音频的特征属性与对应的种类ID
     music_audio_feature = {} #用于存储tf格式下的每个音乐的音频特征(tensro张量list表示) <key(youtube_id):value([tensor])>
     no_music_audio_feature = {}#用于存储tf格式下的每个非音乐的音频特征(tensro张量list表示) <key(youtube_id):value([tensor])>
     audio_time_index={}  #用于存储每个音频在youtube视频里的起始和结束位置
+    audio_vidID_youtubeID_index={}#用于存储每个音频的类ID和对应的youtube视频ID
 
     def read_label_index(self):
         """
@@ -58,11 +60,11 @@ class init_message(object):
         """
         调用其他初始函数，对所有文件进行初始化
         """
-        init_message.read_label_index(self)
-
+        self.read_label_index()
+        self.init_balanced_train_segments()
         with open("ontology.json",'r') as load_f:
             ontology = json.load(load_f)
-        init_message.init_all_label(self,ontology)
+        self.init_all_label(ontology)
 
     def init_all_label(self,ontology):
         """
@@ -79,21 +81,22 @@ class init_message(object):
         """
         用于将所有的属于音乐类别下的信息存放在music_dic_ele字典中
         """
-       # print(type(music_dic_ele['id']))
         self.music_label_dic[music_dic_ele['id']] = music_dic_ele
-       # print(music_dic_ele['id'],' ',music_dic_ele['name'],'\n')
+
         if  music_dic_ele.get('child_ids'):
             for i in range(len(music_dic_ele['child_ids'])):
-                #music_label_dic[music_dic_ele['child_ids'][i]] = all_label_dic[music_dic_ele['child_ids'][i]]
                 init_message.init_music_label(self,**self.all_label_dic[music_dic_ele['child_ids'][i]])
         else:
             return
         return
 
     def init_balanced_train_segments(self):
-        filename = 'balanced_train_segments.csv'
-        with open(filename) as f:
-            train_segments_reader = csv.reader(f)
+        train_segments_reader = read_csv('balanced_train_segments.csv',delimiter =", ",names = ['YTID','start_time','end_time','positive_labels'])
+        for i in range(len(train_segments_reader)):
+            self.youtube_id.append(train_segments_reader['YTID'][i])
+            positive_labels_string = train_segments_reader['positive_labels'][i].strip('"').split(',')
+            self.audio_vidID_youtubeID_index[train_segments_reader['YTID'][i]] =positive_labels_string
+            self.audio_time_index[train_segments_reader['YTID'][i]] = [train_segments_reader['start_time'][i],train_segments_reader['end_time'][i]]
 
         return
 
@@ -116,15 +119,11 @@ class read_tfrecord_feature(object):
             self.file_message.no_music_audio_feature[vid_ids] = audio_frame
     def extract_audio_feature(self,file_path):
         audio_record =file_path
-        vid_ids = []
-        labels = []
-        audio_embedding = []
         start_time_seconds = [] # in secondes
         end_time_seconds = []
         feat_audio = []
         for example in tf.python_io.tf_record_iterator(audio_record):
             tf_example = tf.train.Example.FromString(example)
-           # print(tf_example)
             vid_id = tf_example.features.feature['video_id'].bytes_list.value[0].decode(encoding='UTF-8')
             label = tf_example.features.feature['labels'].int64_list.value
             start_time_seconds.append(tf_example.features.feature['start_time_seconds'].float_list.value)
@@ -148,7 +147,6 @@ class read_tfrecord_feature(object):
         return feat_audio
 
 
-
 class MyLogger(object):
     def debug(self, msg):
         pass
@@ -160,8 +158,20 @@ def my_hook(d):
     if d['status'] == 'finished':
         print('Done downloading, now converting ...')
 class download_audio(object):
+    file_message = init_message()
+    def __init__(self,message):
+        self.file_message = message
+    def batch_download(self):
+        flage = False
+        for i in range(len(self.file_message.youtube_id)):
+            for j in range(len(self.file_message.audio_vidID_youtubeID_index[self.file_message.youtube_id[i]])):
+               # print(self.file_message.audio_vidID_youtubeID_index[self.file_message.youtube_id[i]][j]+" : "+self.file_message.youtube_id[i])
+                if(self.file_message.music_label_dic.get(self.file_message.audio_vidID_youtubeID_index[self.file_message.youtube_id[i]][j])!=None):
+                    self.download_vidio(self.file_message.youtube_id[i],'E:\\music_audio\\')
 
-     def download_vidio(video_id,out_path):
+                else:
+                    self.download_vidio(self.file_message.youtube_id[i],'E:\\other_audio\\')
+    def download_vidio(self,video_id,out_path):
         output = out_path+'/%(title)s.%(ext)s'
         path = 'https://www.youtube.com/watch?v='+video_id
         ydl_opts = {
@@ -183,6 +193,9 @@ if __name__ == '__main__':
     rootdir = 'bal_train'
     t= init_message()
     t.read_all_message()
+
+    z =download_audio(t)
+    z.batch_download()
     list = os.listdir(rootdir) #列出文件夹下所有的目录与文件
     v = read_tfrecord_feature(t)
     for i in range(0,len(list)):
